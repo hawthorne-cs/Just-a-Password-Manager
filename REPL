@@ -1,0 +1,59 @@
+#include <stdio.h>
+#include <stdlib.h>
+#include <stdbool.h>
+#include <string.h>
+
+// initializing a structure for the input buffer
+typedef struct{
+    char buffer;
+    size_t buffer_length;
+    size_t input_length;
+} InputBuffer;
+// setting the base conditions of the input buffer 
+    InputBuffer* new_input_buffer(){ // new function to modify the values of the structure
+        InputBuffer* input_buffer = (InputBuffer*)malloc(sizeof(InputBuffer)); 
+        input_buffer->buffer = NULL; //buffer starts empty
+        input_buffer->buffer_length = 0; //buffer length is 0, meaning it's emtpy still
+        input_buffer->input_length = 0; //same with this
+
+    return input_buffer;
+    }
+//this is just for printing the prompt line indefinitely
+void print_prompt(){
+    printf(">");
+}
+
+// for reading prompt input from user 
+void inputRead(InputBuffer* input_buffer){
+    ssize_t bytes_read = 
+        getline(&(input_buffer->buffer), *(input_buffer->buffer_length), stdin);
+    
+    if (bytes_read <= 0){
+         printf("Invalid input. Please try again\n");
+         exit(EXIT_FAILURE);
+    }
+
+    input_buffer->input_length = bytes_read -1;
+    input_buffer->buffer[bytes_read-1] = 0;
+
+}
+//closing the input buffer
+void closingInputBuffer(InputBuffer* input_buffer);{
+    free(input_buffer->buffer);
+    free(input_buffer);
+}
+
+int main(int argc, char* argv[]){
+    InputBuffer* input_buffer = new_input_buffer();
+    while(true){
+        print_prompt();
+        inputRead(input_buffer);
+    
+    if (strcmp(input_buffer->buffer, ".exit") == 0){
+        closingInputBuffer(input_buffer);
+        exit(EXIT_SUCCESS);
+    } else {
+        printf("Unrecognized comman '%s'.\n", input_buffer->buffer);
+    }
+    }
+}
