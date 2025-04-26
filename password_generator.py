@@ -1,4 +1,4 @@
-import random
+import secrets  # More secure than random
 import string
 
 class PasswordGenerator:
@@ -34,21 +34,24 @@ class PasswordGenerator:
         
         # Ensure at least one character from each selected character set
         if use_lowercase:
-            password.append(random.choice(self.lowercase))
+            password.append(secrets.choice(self.lowercase))
         if use_uppercase:
-            password.append(random.choice(self.uppercase))
+            password.append(secrets.choice(self.uppercase))
         if use_digits:
-            password.append(random.choice(self.digits))
+            password.append(secrets.choice(self.digits))
         if use_symbols:
-            password.append(random.choice(self.symbols))
+            password.append(secrets.choice(self.symbols))
             
         # Fill remaining length with random characters
         remaining_length = length - len(password)
         for _ in range(remaining_length):
-            password.append(random.choice(charset))
+            password.append(secrets.choice(charset))
             
         # Shuffle the password to make it more random
-        random.shuffle(password)
+        # Use Fisher-Yates shuffle algorithm for better security
+        for i in range(len(password) - 1, 0, -1):
+            j = secrets.randbelow(i + 1)
+            password[i], password[j] = password[j], password[i]
         
         return ''.join(password)
     
