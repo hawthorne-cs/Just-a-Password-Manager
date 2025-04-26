@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Database files
+*.db
+*.db-journal
+*.bak
+
+# Visual Studio Code
+.vscode/
+
+# PyCharm
+.idea/
+
+# Icon files generated at runtime
+# key.ico
+# lock.png
+
+# Logs
+*.log 
