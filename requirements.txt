@@ -1,7 +1,4 @@
 cryptography==41.0.4
 pycryptodome==3.19.0
 pyperclip==1.8.2
-Pillow==10.1.0
-winshell==0.6; platform_system == "Windows"
-pywin32==306; platform_system == "Windows"
-pyinstaller==6.1.0 
+Pillow==10.1.0 

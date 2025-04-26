@@ -3,11 +3,14 @@ from tkinter import ttk, messagebox, simpledialog, filedialog
 import pyperclip
 import os
 import re
-from database import Database
-from password_generator import PasswordGenerator
+from src.database import Database
+from src.password_generator import PasswordGenerator
 import threading
 import time
-from utils import create_icon, create_lock_icon
+from src.utils import create_icon, create_lock_icon
+
+# Constants for security
+SESSION_TIMEOUT_SECONDS = 300  # 5 minutes
 
 class PasswordManagerApp:
     def __init__(self, root):
@@ -17,13 +20,13 @@ class PasswordManagerApp:
         self.root.minsize(800, 600)
         
         # Create icons if they don't exist
-        if not os.path.exists("key.ico") or not os.path.exists("lock.png"):
+        if not os.path.exists("../assets/../assets/../assets/key.ico") or not os.path.exists("../assets/../assets/../assets/lock.png"):
             create_icon()
             create_lock_icon()
             
         # Set icon if available
         try:
-            self.root.iconbitmap("key.ico")
+            self.root.iconbitmap("../assets/../assets/../assets/key.ico")
         except:
             pass
             
@@ -32,6 +35,12 @@ class PasswordManagerApp:
         self.password_generator = PasswordGenerator()
         self.logged_in = False
         self.current_password_id = None
+        self.last_activity_time = time.time()
+        
+        # Bind activity monitoring to the root window
+        self.root.bind("<Button>", self.reset_activity_timer)
+        self.root.bind("<Key>", self.reset_activity_timer)
+        self.root.bind("<MouseWheel>", self.reset_activity_timer)
         
         # Apply themes and styles
         self.setup_styles()
@@ -77,7 +86,7 @@ class PasswordManagerApp:
         
         # Image placeholder (if available)
         try:
-            self.login_image = tk.PhotoImage(file="lock.png")
+            self.login_image = tk.PhotoImage(file="../assets/../assets/../assets/lock.png")
             login_img_label = ttk.Label(self.login_frame, image=self.login_image)
             login_img_label.pack(pady=(0, 20))
         except:
@@ -376,6 +385,10 @@ class PasswordManagerApp:
             self.logged_in = True
             self.show_main_frame()
             self.set_status("Logged in successfully")
+            
+            # Start session timeout monitoring
+            self.reset_activity_timer()
+            self.check_activity_timeout()
         else:
             messagebox.showerror("Login Error", 
                               "Invalid master password or too many failed attempts.")
@@ -467,6 +480,12 @@ class PasswordManagerApp:
         self.current_password_id = None
         self.master_password_var.set("")
         self.clear_password_details()
+        self.clear_sensitive_data()
+        
+        # Encrypt database before logging out
+        if hasattr(self, 'db') and self.db.key is not None:
+            self.db.encrypt_database()
+            
         self.show_login_frame()
         
     def refresh_password_list(self):
@@ -733,10 +752,56 @@ class PasswordManagerApp:
         # Clear status after 5 seconds
         self.root.after(5000, lambda: self.status_var.set(""))
         
+    def reset_activity_timer(self, event=None):
+        """Reset the activity timer when user interacts with the app"""
+        if self.logged_in:
+            self.last_activity_time = time.time()
+            
+    def check_activity_timeout(self):
+        """Check if user has been inactive for too long and log them out"""
+        if not self.logged_in:
+            return
+            
+        # Check if timeout reached
+        if time.time() - self.last_activity_time > SESSION_TIMEOUT_SECONDS:
+            # Auto logout for security
+            self.set_status("Session timed out due to inactivity")
+            messagebox.showinfo("Session Timeout", 
+                             "Your session has timed out due to inactivity.\n"
+                             "You have been logged out for security reasons.")
+            self.logout()
+        else:
+            # Schedule next check in 10 seconds
+            self.root.after(10000, self.check_activity_timeout)
+            
+    def clear_sensitive_data(self):
+        """Clear sensitive data from memory for security"""
+        if hasattr(self, 'password_var'):
+            current_password = self.password_var.get()
+            if current_password:
+                self.password_var.set('●' * len(current_password))
+                
+        if hasattr(self, 'master_password_var'):
+            self.master_password_var.set('')
+            
+        # Force garbage collection to help clear memory
+        import gc
+        gc.collect()
+        
 def main():
     """Main application entry point"""
     root = tk.Tk()
     app = PasswordManagerApp(root)
+    
+    # Intercept window close event to ensure database encryption
+    def on_closing():
+        # If logged in, encrypt database before closing
+        if app.logged_in:
+            app.logout()
+        root.destroy()
+        
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+    
     root.mainloop()
     
 if __name__ == "__main__":
