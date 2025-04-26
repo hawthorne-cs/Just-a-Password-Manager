@@ -1,21 +1,32 @@
 import sqlite3
 import os
+import shutil
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.fernet import Fernet
 import base64
 import secrets
+from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 
 class Database:
-    def __init__(self, db_file="passwords.db"):
+    def __init__(self, db_file="passwords.db", encrypted_db_file="passwords.db.enc"):
         self.db_file = db_file
+        self.encrypted_db_file = encrypted_db_file
         self.conn = None
         self.cursor = None
         self.salt = None
         self.key = None
         self.fernet = None
-        self.initialize_db()
+        self.db_encryption_key = None
+        
+        # Check if encrypted database exists and needs decryption
+        if os.path.exists(self.encrypted_db_file) and not os.path.exists(self.db_file):
+            # The database is currently encrypted, but will be decrypted on successful login
+            pass
+        else:
+            # Initialize new database or use existing unencrypted one
+            self.initialize_db()
 
     def initialize_db(self):
         """Initialize the database with required tables if they don't exist"""
@@ -80,6 +91,17 @@ class Database:
         self.key = key
         self.salt = salt
         self.fernet = Fernet(key)
+        
+        # Also derive a separate key for database file encryption
+        db_kdf = PBKDF2HMAC(
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=salt,
+            iterations=150000,  # More iterations for db encryption
+            backend=default_backend()
+        )
+        self.db_encryption_key = db_kdf.derive(master_password.encode())
+        
         return key, salt
 
     def create_master_password(self, master_password):
@@ -110,6 +132,10 @@ class Database:
                 )
                 
             self.conn.commit()
+            
+            # Encrypt the database file
+            self.encrypt_database()
+            
             return True
         except sqlite3.Error as e:
             print(f"Error creating master password: {e}")
@@ -119,6 +145,11 @@ class Database:
 
     def verify_master_password(self, master_password):
         """Verify the master password and update login attempts"""
+        # If encrypted database exists, try to decrypt it
+        if os.path.exists(self.encrypted_db_file):
+            if not self.decrypt_database(master_password):
+                return False
+        
         self.connect()
         
         try:
@@ -359,3 +390,142 @@ class Database:
                 
             print(f"Error importing database: {e}")
             return False 
+
+    def encrypt_database(self):
+        """Encrypt the entire database file for security"""
+        # First ensure connection is closed
+        self.disconnect()
+        
+        if not os.path.exists(self.db_file):
+            return False
+            
+        try:
+            # Read the database file
+            with open(self.db_file, 'rb') as db_file:
+                db_content = db_file.read()
+                
+            # Generate a random IV
+            iv = secrets.token_bytes(16)
+            
+            # Create an encryptor
+            cipher = Cipher(
+                algorithms.AES(self.db_encryption_key),
+                modes.CBC(iv),
+                backend=default_backend()
+            )
+            encryptor = cipher.encryptor()
+            
+            # Pad the content to be a multiple of block size (16 bytes)
+            padded_size = 16 - (len(db_content) % 16)
+            db_content += bytes([padded_size]) * padded_size
+            
+            # Encrypt the content
+            encrypted_content = encryptor.update(db_content) + encryptor.finalize()
+            
+            # Write the IV and encrypted content to the file
+            with open(self.encrypted_db_file, 'wb') as enc_file:
+                enc_file.write(iv)  # First 16 bytes are the IV
+                enc_file.write(encrypted_content)
+                
+            # Securely delete the unencrypted file
+            self.secure_delete_file(self.db_file)
+                
+            return True
+        except Exception as e:
+            print(f"Error encrypting database: {e}")
+            return False
+            
+    def decrypt_database(self, master_password):
+        """Decrypt the database file using the master password"""
+        if not os.path.exists(self.encrypted_db_file):
+            return False
+            
+        try:
+            # Read the encrypted file
+            with open(self.encrypted_db_file, 'rb') as enc_file:
+                data = enc_file.read()
+                
+            # Extract IV and encrypted content
+            iv = data[:16]
+            encrypted_content = data[16:]
+            
+            # Create a temporary salt for key derivation
+            temp_salt = secrets.token_bytes(16)
+            
+            # Generate a temporary key
+            kdf = PBKDF2HMAC(
+                algorithm=hashes.SHA256(),
+                length=32,
+                salt=temp_salt,
+                iterations=150000,
+                backend=default_backend()
+            )
+            
+            temp_key = kdf.derive(master_password.encode())
+            
+            # Create a decryptor
+            cipher = Cipher(
+                algorithms.AES(temp_key),
+                modes.CBC(iv),
+                backend=default_backend()
+            )
+            decryptor = cipher.decryptor()
+            
+            try:
+                # Try to decrypt
+                decrypted_content = decryptor.update(encrypted_content) + decryptor.finalize()
+                
+                # Remove padding
+                padding_size = decrypted_content[-1]
+                decrypted_content = decrypted_content[:-padding_size]
+                
+                # Write decrypted content to database file
+                with open(self.db_file, 'wb') as db_file:
+                    db_file.write(decrypted_content)
+                    
+                # Test if it's a valid SQLite database
+                test_conn = sqlite3.connect(self.db_file)
+                test_conn.close()
+                
+                # Now derive the actual key using the correct salt from the DB
+                # Note: this will be done after connecting to the DB in verify_master_password
+                
+                return True
+            except Exception:
+                # If decryption fails, it was probably the wrong password
+                # Clean up any partially decrypted file
+                if os.path.exists(self.db_file):
+                    os.remove(self.db_file)
+                return False
+                
+        except Exception as e:
+            print(f"Error decrypting database: {e}")
+            return False
+            
+    def secure_delete_file(self, filepath):
+        """Securely delete a file by overwriting with random data before deleting"""
+        if not os.path.exists(filepath):
+            return
+            
+        try:
+            # Get file size
+            file_size = os.path.getsize(filepath)
+            
+            # Open file for binary write
+            with open(filepath, 'wb') as f:
+                # Overwrite with random data 3 times
+                for _ in range(3):
+                    f.seek(0)
+                    f.write(secrets.token_bytes(file_size))
+                    f.flush()
+                    os.fsync(f.fileno())
+                    
+            # Finally delete the file
+            os.remove(filepath)
+        except Exception as e:
+            print(f"Error securely deleting file: {e}")
+            # Attempt normal delete as fallback
+            try:
+                os.remove(filepath)
+            except:
+                pass 
