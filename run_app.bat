@@ -1,0 +1,3 @@
+@echo off
+echo Starting Password Manager...
+python launcher.py 
